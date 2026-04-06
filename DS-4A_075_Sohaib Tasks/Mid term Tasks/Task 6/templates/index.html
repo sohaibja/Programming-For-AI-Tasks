@@ -1,0 +1,1102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>HerdWatch — Animal Herd Detection System</title>
+
+<!-- Google Fonts: Bebas Neue (display) + DM Mono (code/data) + Lato (body) -->
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=Lato:wght@300;400;700&display=swap" rel="stylesheet"/>
+
+<!-- Leaflet.js for OpenStreetMap -->
+<link  rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<style>
+/* ═══════════════════════════════════════════════
+   DESIGN SYSTEM  –  Night-vision / Field-monitor
+   Palette: deep forest dark + acid green alerts
+   ═══════════════════════════════════════════════ */
+:root {
+  --bg0:      #090e0a;
+  --bg1:      #0d1410;
+  --bg2:      #111a13;
+  --panel:    #141e16;
+  --border:   #1f3024;
+  --green:    #22ff6e;
+  --green2:   #0fcc50;
+  --green3:   #09813a;
+  --amber:    #ffb830;
+  --red:      #ff4545;
+  --dimtext:  #4a7558;
+  --text:     #b8d4be;
+  --white:    #e8f5eb;
+  --mono:     'DM Mono', monospace;
+  --display:  'Bebas Neue', sans-serif;
+  --body:     'Lato', sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg0);
+  color: var(--text);
+  font-family: var(--body);
+  font-size: 14px;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* scanline overlay for the CRT/field-monitor feel */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,.07) 2px,
+    rgba(0,0,0,.07) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ── Top bar ───────────────────────────────────── */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 28px;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 100;
+}
+
+.logo {
+  font-family: var(--display);
+  font-size: 2rem;
+  letter-spacing: 3px;
+  color: var(--green);
+  text-shadow: 0 0 18px rgba(34,255,110,.4);
+}
+.logo span { color: var(--amber); }
+
+.status-bar {
+  display: flex; gap: 18px; align-items: center;
+}
+.status-pill {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  color: var(--dimtext);
+  background: var(--bg2);
+}
+.status-pill.active {
+  color: var(--green);
+  border-color: var(--green3);
+  box-shadow: 0 0 8px rgba(34,255,110,.2);
+}
+.status-pill.alert {
+  color: var(--amber);
+  border-color: var(--amber);
+  animation: pulse-amber 1.2s infinite;
+}
+@keyframes pulse-amber {
+  0%,100% { box-shadow: 0 0 0 rgba(255,184,48,0); }
+  50%      { box-shadow: 0 0 12px rgba(255,184,48,.5); }
+}
+
+/* ── Layout grid ───────────────────────────────── */
+.main-grid {
+  display: grid;
+  grid-template-columns: 340px 1fr 300px;
+  gap: 0;
+  height: calc(100vh - 56px);
+}
+
+/* ── Sidebar ───────────────────────────────────── */
+.sidebar {
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow-y: auto;
+}
+
+.sidebar-section {
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.section-title {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--dimtext);
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+
+/* Upload zone */
+.upload-zone {
+  border: 1px dashed var(--green3);
+  border-radius: 6px;
+  padding: 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all .25s;
+  background: rgba(34,255,110,.02);
+  position: relative;
+}
+.upload-zone:hover,
+.upload-zone.drag-over {
+  border-color: var(--green);
+  background: rgba(34,255,110,.06);
+  box-shadow: inset 0 0 20px rgba(34,255,110,.05);
+}
+.upload-zone input[type=file] {
+  position: absolute; inset: 0; opacity: 0; cursor: pointer;
+}
+.upload-icon {
+  font-size: 2rem; margin-bottom: 8px;
+  filter: drop-shadow(0 0 6px var(--green));
+}
+.upload-zone p { font-size: 12px; color: var(--dimtext); line-height: 1.5; }
+.upload-zone p strong { color: var(--green); }
+
+/* Buttons */
+.btn {
+  display: block; width: 100%;
+  padding: 10px 16px;
+  font-family: var(--display);
+  font-size: 1.1rem;
+  letter-spacing: 2px;
+  border: none; border-radius: 4px;
+  cursor: pointer;
+  transition: all .2s;
+}
+.btn-primary {
+  background: var(--green3);
+  color: var(--bg0);
+  box-shadow: 0 0 14px rgba(34,255,110,.25);
+}
+.btn-primary:hover {
+  background: var(--green2);
+  box-shadow: 0 0 22px rgba(34,255,110,.45);
+  transform: translateY(-1px);
+}
+.btn-secondary {
+  background: transparent;
+  color: var(--amber);
+  border: 1px solid var(--amber);
+}
+.btn-secondary:hover {
+  background: rgba(255,184,48,.08);
+}
+.btn-danger {
+  background: transparent;
+  color: var(--red);
+  border: 1px solid rgba(255,69,69,.4);
+  font-size: .9rem;
+}
+.btn-danger:hover { background: rgba(255,69,69,.08); }
+.btn + .btn { margin-top: 8px; }
+
+/* Threshold slider */
+.slider-row {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 8px;
+}
+.slider-row label {
+  font-family: var(--mono); font-size: 11px; color: var(--dimtext);
+  white-space: nowrap;
+}
+input[type=range] {
+  flex: 1; accent-color: var(--green);
+}
+.slider-val {
+  font-family: var(--mono); font-size: 12px;
+  color: var(--green); min-width: 26px; text-align: right;
+}
+
+/* Detection list */
+.det-list { list-style: none; max-height: 230px; overflow-y: auto; }
+.det-list li {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border-radius: 4px;
+  margin-bottom: 4px;
+  background: var(--bg2);
+  font-family: var(--mono); font-size: 12px;
+  transition: background .2s;
+}
+.det-list li:hover { background: var(--border); }
+.det-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  flex-shrink: 0;
+}
+.det-label { flex: 1; color: var(--white); }
+.det-conf  { color: var(--green); }
+
+/* Stats row */
+.stats-grid {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 8px; margin-top: 4px;
+}
+.stat-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px; padding: 10px 12px;
+}
+.stat-num {
+  font-family: var(--display);
+  font-size: 1.9rem; color: var(--green);
+  line-height: 1;
+}
+.stat-label {
+  font-family: var(--mono); font-size: 10px;
+  color: var(--dimtext); margin-top: 2px;
+}
+
+/* Log */
+.log-box {
+  background: var(--bg0);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px;
+  max-height: 160px;
+  overflow-y: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.log-box .log-line { color: var(--dimtext); }
+.log-box .log-line.ok  { color: var(--green); }
+.log-box .log-line.warn{ color: var(--amber); }
+.log-box .log-line.err { color: var(--red);   }
+
+/* ── Centre panel ──────────────────────────────── */
+.centre-panel {
+  display: flex; flex-direction: column;
+  background: var(--bg0);
+  overflow: hidden;
+}
+
+.tab-bar {
+  display: flex; background: var(--bg1);
+  border-bottom: 1px solid var(--border);
+}
+.tab {
+  padding: 12px 22px;
+  font-family: var(--mono); font-size: 12px;
+  letter-spacing: 1px; cursor: pointer;
+  color: var(--dimtext);
+  border-bottom: 2px solid transparent;
+  transition: all .2s;
+}
+.tab:hover { color: var(--text); }
+.tab.active {
+  color: var(--green);
+  border-bottom-color: var(--green);
+}
+
+.tab-content { display: none; flex: 1; overflow: auto; }
+.tab-content.active { display: flex; flex-direction: column; flex: 1; }
+
+/* Image viewer */
+#img-viewer-wrap {
+  flex: 1;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg0);
+  padding: 20px;
+  position: relative;
+}
+#preview-img {
+  max-width: 100%; max-height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 0 40px rgba(0,0,0,.8);
+  display: none;
+}
+.empty-viewer {
+  text-align: center; pointer-events: none;
+}
+.empty-viewer .big-icon {
+  font-size: 4rem;
+  filter: drop-shadow(0 0 12px rgba(34,255,110,.3));
+  margin-bottom: 12px;
+}
+.empty-viewer p {
+  font-family: var(--mono); font-size: 12px;
+  color: var(--dimtext); line-height: 1.8;
+}
+
+/* Processing spinner */
+.spinner-wrap {
+  position: absolute; inset: 0;
+  display: none; align-items: center; justify-content: center;
+  background: rgba(9,14,10,.7);
+  z-index: 10;
+}
+.spinner {
+  width: 52px; height: 52px;
+  border: 3px solid var(--border);
+  border-top-color: var(--green);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Video feed */
+#live-frame {
+  width: 100%; height: 100%;
+  object-fit: cover;
+}
+
+/* ── Map panel ─────────────────────────────────── */
+.right-panel {
+  display: flex; flex-direction: column;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+}
+
+#map {
+  flex: 1;
+  min-height: 300px;
+}
+
+/* Override Leaflet for dark theme */
+.leaflet-tile-pane { filter: brightness(.75) saturate(.6) hue-rotate(90deg); }
+.leaflet-control-zoom a {
+  background: var(--panel) !important;
+  color: var(--green) !important;
+  border-color: var(--border) !important;
+}
+
+.alert-log-wrap {
+  padding: 14px;
+  border-top: 1px solid var(--border);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.alert-item {
+  display: flex; gap: 8px;
+  padding: 8px; margin-bottom: 6px;
+  border-radius: 4px;
+  background: var(--bg2);
+  font-size: 12px;
+  animation: slideIn .3s ease;
+}
+@keyframes slideIn {
+  from { transform: translateX(20px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+.alert-item .ai-icon { font-size: 1.2rem; }
+.alert-item .ai-meta { flex: 1; }
+.alert-item .ai-title {
+  font-family: var(--mono); color: var(--amber);
+  font-size: 11px; font-weight: 500;
+}
+.alert-item .ai-body  { color: var(--dimtext); font-size: 11px; margin-top: 2px; }
+.alert-item.herd { border-left: 2px solid var(--amber); }
+.alert-item.normal { border-left: 2px solid var(--green3); }
+
+/* Herd alert flash */
+.herd-flash {
+  position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
+  background: var(--amber);
+  color: var(--bg0);
+  font-family: var(--display);
+  font-size: 1.6rem;
+  letter-spacing: 4px;
+  padding: 14px 36px;
+  border-radius: 6px;
+  box-shadow: 0 0 40px rgba(255,184,48,.6);
+  z-index: 9998;
+  display: none;
+  animation: flashIn .3s ease;
+}
+@keyframes flashIn {
+  from { transform: translateX(-50%) scale(.8); opacity: 0; }
+  to   { transform: translateX(-50%) scale(1);  opacity: 1; }
+}
+
+/* ── Download progress panel ───────────────────────────────── */
+#download-panel {
+  position: fixed;
+  bottom: 24px; right: 24px;
+  width: 340px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 40px rgba(0,0,0,.6), 0 0 0 1px rgba(34,255,110,.08);
+  z-index: 500;
+  overflow: hidden;
+  animation: slideUpIn .4s ease;
+  display: none;
+}
+@keyframes slideUpIn {
+  from { transform: translateY(30px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.dl-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+}
+.dl-header-title {
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: 2px; color: var(--amber);
+  display: flex; align-items: center; gap: 8px;
+}
+.dl-spinner {
+  width: 12px; height: 12px;
+  border: 2px solid rgba(255,184,48,.3);
+  border-top-color: var(--amber);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+  flex-shrink: 0;
+}
+.dl-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+
+.dl-file { display: flex; flex-direction: column; gap: 5px; }
+.dl-file-row {
+  display: flex; align-items: center; justify-content: space-between;
+  font-family: var(--mono); font-size: 11px;
+}
+.dl-file-name { color: var(--text); }
+.dl-file-status { font-size: 10px; }
+.dl-file-status.waiting  { color: var(--dimtext); }
+.dl-file-status.progress { color: var(--amber); }
+.dl-file-status.done     { color: var(--green); }
+.dl-file-status.error    { color: var(--red); }
+
+.dl-bar-bg {
+  height: 4px; background: var(--border);
+  border-radius: 2px; overflow: hidden;
+}
+.dl-bar-fill {
+  height: 100%; border-radius: 2px;
+  background: linear-gradient(90deg, var(--green3), var(--green));
+  transition: width .4s ease;
+  box-shadow: 0 0 6px rgba(34,255,110,.4);
+}
+.dl-bar-fill.error { background: var(--red); }
+.dl-bar-fill.amber { background: var(--amber); }
+
+.dl-mb { font-family: var(--mono); font-size: 10px; color: var(--dimtext); text-align: right; }
+
+.dl-footer {
+  padding: 10px 16px;
+  background: var(--bg2);
+  border-top: 1px solid var(--border);
+  font-family: var(--mono); font-size: 10px;
+  color: var(--dimtext); text-align: center;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg1); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--green3); }
+
+/* Responsive collapse for very small screens */
+@media (max-width: 1100px) {
+  .main-grid { grid-template-columns: 300px 1fr; }
+  .right-panel { display: none; }
+}
+@media (max-width: 700px) {
+  .main-grid { grid-template-columns: 1fr; }
+  .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+}
+</style>
+</head>
+<body>
+
+<!-- ════ Download Progress Panel ════ -->
+<div id="download-panel">
+  <div class="dl-header">
+    <div class="dl-header-title">
+      <div class="dl-spinner" id="dlSpinner"></div>
+      DOWNLOADING YOLO MODEL FILES
+    </div>
+    <span id="dlOverallPct" style="font-family:var(--mono);font-size:11px;color:var(--green)">0%</span>
+  </div>
+
+  <div class="dl-body">
+
+    <!-- weights -->
+    <div class="dl-file" id="dl-yolov4-tiny.weights">
+      <div class="dl-file-row">
+        <span class="dl-file-name">yolov4-tiny.weights</span>
+        <span class="dl-file-status waiting" id="st-yolov4-tiny.weights">WAITING</span>
+      </div>
+      <div class="dl-bar-bg">
+        <div class="dl-bar-fill" id="bar-yolov4-tiny.weights" style="width:0%"></div>
+      </div>
+      <div class="dl-mb" id="mb-yolov4-tiny.weights">— / 23.0 MB</div>
+    </div>
+
+    <!-- cfg -->
+    <div class="dl-file" id="dl-yolov4-tiny.cfg">
+      <div class="dl-file-row">
+        <span class="dl-file-name">yolov4-tiny.cfg</span>
+        <span class="dl-file-status waiting" id="st-yolov4-tiny.cfg">WAITING</span>
+      </div>
+      <div class="dl-bar-bg">
+        <div class="dl-bar-fill amber" id="bar-yolov4-tiny.cfg" style="width:0%"></div>
+      </div>
+      <div class="dl-mb" id="mb-yolov4-tiny.cfg"></div>
+    </div>
+
+    <!-- coco.names -->
+    <div class="dl-file" id="dl-coco.names">
+      <div class="dl-file-row">
+        <span class="dl-file-name">coco.names</span>
+        <span class="dl-file-status waiting" id="st-coco.names">WAITING</span>
+      </div>
+      <div class="dl-bar-bg">
+        <div class="dl-bar-fill amber" id="bar-coco.names" style="width:0%"></div>
+      </div>
+      <div class="dl-mb" id="mb-coco.names"></div>
+    </div>
+
+  </div>
+  <div class="dl-footer" id="dlFooterMsg">
+    Auto-downloading model files — please wait...
+  </div>
+</div>
+
+<!-- ════ Flash banner ════ -->
+<div class="herd-flash" id="herdFlash">⚠ HERD DETECTED</div>
+
+<!-- ════ Top bar ════ -->
+<header class="topbar">
+  <div class="logo">Herd<span>Watch</span></div>
+  <div class="status-bar">
+    <span class="status-pill" id="pill-model">MODEL: DEMO</span>
+    <span class="status-pill" id="pill-status">STANDBY</span>
+    <span class="status-pill" id="pill-time">--:--:--</span>
+  </div>
+</header>
+
+<!-- ════ Main 3-column layout ════ -->
+<div class="main-grid">
+
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+
+    <!-- Input source -->
+    <div class="sidebar-section">
+      <div class="section-title">▸ Input Source</div>
+
+      <div class="upload-zone" id="uploadZone">
+        <input type="file" id="fileInput" accept="image/*,video/*"/>
+        <div class="upload-icon">🐾</div>
+        <p><strong>Drop image here</strong><br/>or click to browse<br/>JPG / PNG / MP4</p>
+      </div>
+
+      <br/>
+      <button class="btn btn-primary" id="btnAnalyse" onclick="analyseImage()">
+        ANALYSE IMAGE
+      </button>
+      <button class="btn btn-secondary" id="btnDemo" onclick="runDemo()">
+        RUN DEMO
+      </button>
+      <button class="btn btn-danger" id="btnLive" onclick="toggleLive()">
+        LIVE CAMERA
+      </button>
+    </div>
+
+    <!-- Threshold slider -->
+    <div class="sidebar-section">
+      <div class="section-title">▸ Detection Settings</div>
+      <div class="slider-row">
+        <label>HERD THRESHOLD</label>
+        <input type="range" id="herdThresh" min="2" max="10" value="3"
+               oninput="document.getElementById('threshVal').textContent=this.value"/>
+        <span class="slider-val" id="threshVal">3</span>
+      </div>
+    </div>
+
+    <!-- Live detection list -->
+    <div class="sidebar-section">
+      <div class="section-title">▸ Detected Animals</div>
+      <ul class="det-list" id="detList">
+        <li style="color:var(--dimtext); font-size:11px; font-family:var(--mono)">
+          No detections yet
+        </li>
+      </ul>
+    </div>
+
+    <!-- Stats -->
+    <div class="sidebar-section">
+      <div class="section-title">▸ Session Stats</div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-num" id="statCount">0</div>
+          <div class="stat-label">ANIMALS</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num" id="statHerds" style="color:var(--amber)">0</div>
+          <div class="stat-label">HERD ALERTS</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num" id="statScans">0</div>
+          <div class="stat-label">SCANS</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num" id="statConf">—</div>
+          <div class="stat-label">AVG CONF</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- System log -->
+    <div class="sidebar-section" style="flex:1">
+      <div class="section-title">▸ System Log</div>
+      <div class="log-box" id="logBox">
+        <div class="log-line ok">[SYSTEM] HerdWatch initialised.</div>
+        <div class="log-line">[SYSTEM] Checking model files...</div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- ── Centre panel ── -->
+  <section class="centre-panel">
+    <div class="tab-bar">
+      <div class="tab active" onclick="switchTab('img', this)">IMAGE ANALYSIS</div>
+      <div class="tab" onclick="switchTab('live', this)">LIVE FEED</div>
+    </div>
+
+    <!-- Image tab -->
+    <div class="tab-content active" id="tab-img">
+      <div id="img-viewer-wrap">
+        <!-- Spinner overlay -->
+        <div class="spinner-wrap" id="spinner">
+          <div class="spinner"></div>
+        </div>
+
+        <!-- Empty state -->
+        <div class="empty-viewer" id="emptyState">
+          <div class="big-icon">🌿</div>
+          <p>Upload an image or run the demo<br/>to start animal detection</p>
+        </div>
+
+        <!-- Result image -->
+        <img id="preview-img" alt="Detection result"/>
+      </div>
+    </div>
+
+    <!-- Live feed tab -->
+    <div class="tab-content" id="tab-live">
+      <img id="live-frame" src="" alt="Live camera feed"/>
+    </div>
+  </section>
+
+  <!-- ── Right panel: Map + alert log ── -->
+  <aside class="right-panel">
+    <div class="section-title" style="padding:12px 14px 4px;border-bottom:1px solid var(--border)">
+      ▸ OPENSTREETMAP ALERT LOCATIONS
+    </div>
+    <div id="map"></div>
+
+    <div class="alert-log-wrap">
+      <div class="section-title">▸ Alert Feed</div>
+      <div id="alertFeed">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--dimtext)">
+          No alerts yet. Run a detection to populate the map.
+        </div>
+      </div>
+    </div>
+  </aside>
+
+</div><!-- end main-grid -->
+
+
+<!-- ════════════════════════════════════════════
+     JavaScript
+════════════════════════════════════════════ -->
+<script>
+// ── Globals ──────────────────────────────────────────────────
+let mapInstance    = null;
+let markerLayer    = null;
+let sessionScans   = 0;
+let sessionHerds   = 0;
+let sessionConfs   = [];
+let liveActive     = false;
+let dlPollTimer    = null;   // interval for polling download progress
+
+// Animal → colour mapping (matches detector.py COLOURS)
+const ANIMAL_COLOURS = {
+  bird:'#FFD132', cat:'#FF6464', dog:'#64C8FF',
+  horse:'#B450FF', sheep:'#96FF96', cow:'#32C8FF',
+  elephant:'#C89632', bear:'#5050FF', zebra:'#FFFFFF',
+  giraffe:'#32C8C8', animal:'#64FF64'
+};
+
+// ── Initialise clock ─────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  document.getElementById('pill-time').textContent =
+    now.toTimeString().split(' ')[0];
+}
+setInterval(updateClock, 1000); updateClock();
+
+// ── Initialise Leaflet map ───────────────────────────────────
+function initMap() {
+  mapInstance = L.map('map', { zoomControl: true }).setView([10, 20], 2);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 18,
+  }).addTo(mapInstance);
+  markerLayer = L.layerGroup().addTo(mapInstance);
+}
+initMap();
+
+// ── Download progress polling ────────────────────────────────
+const FILES = ['yolov4-tiny.weights', 'yolov4-tiny.cfg', 'coco.names'];
+
+function showDownloadPanel(show) {
+  document.getElementById('download-panel').style.display = show ? 'block' : 'none';
+}
+
+function updateDownloadUI(progress) {
+  let allDone  = true;
+  let anyError = false;
+  let totalPct = 0;
+
+  FILES.forEach(fname => {
+    const info = progress[fname];
+    if (!info) return;
+
+    const barEl = document.getElementById('bar-' + fname);
+    const stEl  = document.getElementById('st-'  + fname);
+    const mbEl  = document.getElementById('mb-'  + fname);
+
+    barEl.style.width = info.pct + '%';
+
+    if (info.error) {
+      stEl.textContent = 'ERROR';
+      stEl.className   = 'dl-file-status error';
+      barEl.classList.add('error');
+      anyError = true;
+      allDone  = false;
+    } else if (info.done) {
+      stEl.textContent = '✓ DONE';
+      stEl.className   = 'dl-file-status done';
+      barEl.style.width = '100%';
+      if (info.mb_total > 0)
+        mbEl.textContent = info.mb_total.toFixed(1) + ' MB';
+    } else {
+      stEl.textContent = info.pct.toFixed(0) + '%';
+      stEl.className   = 'dl-file-status progress';
+      if (info.mb_total > 0)
+        mbEl.textContent = info.mb_done + ' / ' + info.mb_total.toFixed(1) + ' MB';
+      allDone = false;
+    }
+
+    totalPct += (info.pct || 0);
+  });
+
+  const avgPct = Math.round(totalPct / FILES.length);
+  document.getElementById('dlOverallPct').textContent = avgPct + '%';
+
+  if (allDone && !anyError) {
+    // All files downloaded — hide panel and reload model status
+    document.getElementById('dlFooterMsg').textContent =
+      '✓ All files downloaded! Loading YOLO model...';
+    document.getElementById('dlSpinner').style.display = 'none';
+    clearInterval(dlPollTimer);
+    setTimeout(() => {
+      showDownloadPanel(false);
+      checkModelStatus();
+    }, 2200);
+  }
+
+  if (anyError) {
+    document.getElementById('dlFooterMsg').textContent =
+      '✗ Download failed. Check your internet and restart.';
+    document.getElementById('dlSpinner').style.display = 'none';
+    clearInterval(dlPollTimer);
+  }
+}
+
+function startDownloadPolling() {
+  showDownloadPanel(true);
+  addLog('Auto-downloading YOLO model files...', 'warn');
+  dlPollTimer = setInterval(async () => {
+    try {
+      const res  = await fetch('/download_progress');
+      const data = await res.json();
+      updateDownloadUI(data);
+    } catch(e) { /* server might be busy */ }
+  }, 800);
+}
+
+// ── Check model status (runs on page load) ───────────────────
+async function checkModelStatus() {
+  try {
+    const res  = await fetch('/model_status');
+    const data = await res.json();
+    const pill = document.getElementById('pill-model');
+
+    if (data.yolo_loaded) {
+      pill.textContent = 'MODEL: YOLOv4';
+      pill.classList.add('active');
+      addLog('YOLOv4-tiny loaded — real detection active.', 'ok');
+      showDownloadPanel(false);
+    } else {
+      pill.textContent = 'MODEL: DOWNLOADING';
+      pill.classList.add('alert');
+      addLog('Model files missing — auto-download started.', 'warn');
+
+      // Check if files are already downloading or need to start
+      const prog = await fetch('/download_progress').then(r => r.json());
+      const anyInProgress = Object.values(prog).some(p => !p.done);
+
+      // Show the panel with current state regardless
+      updateDownloadUI(prog);
+      showDownloadPanel(true);
+
+      // Only start interval if not all done
+      const allDone = Object.keys(prog).length === FILES.length &&
+                      Object.values(prog).every(p => p.done);
+      if (!allDone) {
+        startDownloadPolling();
+      } else {
+        // Files exist on disk but YOLO failed to load for another reason
+        addLog('Model files present but YOLO did not load. Check models/ folder.', 'err');
+      }
+    }
+  } catch(e) {
+    addLog('Could not contact Flask server.', 'err');
+  }
+}
+checkModelStatus();
+
+// ── Tab switching ────────────────────────────────────────────
+function switchTab(name, el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+  if (name === 'map' && mapInstance)
+    setTimeout(() => mapInstance.invalidateSize(), 100);
+}
+
+// ── Drag-and-drop ────────────────────────────────────────────
+const uploadZone = document.getElementById('uploadZone');
+uploadZone.addEventListener('dragover', e => {
+  e.preventDefault();
+  uploadZone.classList.add('drag-over');
+});
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) {
+    document.getElementById('fileInput').files = e.dataTransfer.files;
+    addLog(`File dropped: ${file.name}`, 'ok');
+  }
+});
+
+// ── Analyse uploaded image ───────────────────────────────────
+async function analyseImage() {
+  const fileInput = document.getElementById('fileInput');
+  if (!fileInput.files.length) {
+    addLog('Please select an image first.', 'warn'); return;
+  }
+  const file = fileInput.files[0];
+  addLog(`Processing: ${file.name}`, 'ok');
+  setStatus('SCANNING...'); showSpinner(true);
+
+  const formData = new FormData();
+  formData.append('image', file);
+  try {
+    const res  = await fetch('/detect_image', { method: 'POST', body: formData });
+    const data = await res.json();
+    if (data.error) {
+      addLog(`Error: ${data.error}`, 'err');
+      showSpinner(false); setStatus('ERROR'); return;
+    }
+    showSpinner(false); displayResults(data);
+  } catch(err) {
+    addLog(`Network error: ${err.message}`, 'err');
+    showSpinner(false); setStatus('ERROR');
+  }
+}
+
+// ── Demo mode ────────────────────────────────────────────────
+async function runDemo() {
+  addLog('Running demo simulation...', 'ok');
+  setStatus('DEMO SCAN'); showSpinner(true);
+  await new Promise(r => setTimeout(r, 700));
+  try {
+    const res  = await fetch('/detect_demo');
+    const data = await res.json();
+    showSpinner(false); displayResults(data);
+    addLog('Demo mode — results are simulated.', 'warn');
+  } catch(err) {
+    addLog(`Error: ${err.message}`, 'err'); showSpinner(false);
+  }
+}
+
+// ── Display detection results ────────────────────────────────
+function displayResults(data) {
+  const { detections, herd_alert, location, image_b64, total_count } = data;
+
+  if (image_b64) {
+    const img = document.getElementById('preview-img');
+    img.src   = 'data:image/jpeg;base64,' + image_b64;
+    img.style.display = 'block';
+    document.getElementById('emptyState').style.display = 'none';
+  }
+
+  updateDetList(detections);
+
+  sessionScans++;
+  if (herd_alert) sessionHerds++;
+  detections.forEach(d => sessionConfs.push(d.confidence));
+  document.getElementById('statCount').textContent = total_count;
+  document.getElementById('statHerds').textContent = sessionHerds;
+  document.getElementById('statScans').textContent = sessionScans;
+  const avgConf = sessionConfs.length
+    ? Math.round(sessionConfs.reduce((a,b)=>a+b,0)/sessionConfs.length * 100) : 0;
+  document.getElementById('statConf').textContent = avgConf ? avgConf + '%' : '—';
+
+  if (herd_alert) {
+    flashHerdAlert();
+    addLog(`HERD ALERT: ${total_count} animals at ${location.name}`, 'warn');
+    setStatus('HERD DETECTED');
+  } else {
+    addLog(`Detected ${total_count} animal(s). No herd threshold reached.`, 'ok');
+    setStatus('SCAN COMPLETE');
+  }
+
+  addMapMarker(location, detections, herd_alert);
+  addAlertItem(location, detections, herd_alert);
+}
+
+// ── Detection list ───────────────────────────────────────────
+function updateDetList(detections) {
+  const list = document.getElementById('detList');
+  if (!detections.length) {
+    list.innerHTML = '<li style="color:var(--dimtext);font-size:11px;font-family:var(--mono)">No animals detected</li>';
+    return;
+  }
+  list.innerHTML = detections.map(d => {
+    const col = ANIMAL_COLOURS[d.label] || ANIMAL_COLOURS.animal;
+    return `<li>
+      <span class="det-dot" style="background:${col}"></span>
+      <span class="det-label">${d.label.toUpperCase()}</span>
+      <span class="det-conf">${Math.round(d.confidence*100)}%</span>
+    </li>`;
+  }).join('');
+}
+
+// ── Leaflet marker ───────────────────────────────────────────
+function addMapMarker(location, detections, herd_alert) {
+  const counts = {};
+  detections.forEach(d => { counts[d.label] = (counts[d.label]||0)+1; });
+  const summary = Object.entries(counts).map(([k,v])=>`${v}× ${k}`).join(', ') || 'no animals';
+  const colour  = herd_alert ? '#ffb830' : '#22ff6e';
+
+  const icon = L.divIcon({
+    className: '',
+    html: `<div style="width:18px;height:18px;border-radius:50%;
+      background:${colour};border:2px solid #090e0a;
+      box-shadow:0 0 10px ${colour}"></div>`,
+    iconSize: [18,18], iconAnchor: [9,9],
+  });
+
+  L.marker([location.lat, location.lng], { icon })
+    .bindPopup(`<div style="font-family:monospace;font-size:12px;min-width:160px">
+      <b>${herd_alert ? '⚠ HERD ALERT' : '✓ Detection'}</b><br/>
+      <b>${location.name}</b><br/>
+      <span style="color:#555">${summary}</span><br/>
+      <small>Lat ${location.lat}, Lng ${location.lng}</small>
+    </div>`)
+    .addTo(markerLayer);
+
+  mapInstance.flyTo([location.lat, location.lng], 5, { animate: true, duration: 1.2 });
+  setTimeout(() => mapInstance.invalidateSize(), 300);
+}
+
+// ── Alert feed ───────────────────────────────────────────────
+function addAlertItem(location, detections, herd_alert) {
+  const feed = document.getElementById('alertFeed');
+  if (feed.querySelector('div[style]')) feed.innerHTML = '';
+  const counts = {};
+  detections.forEach(d => counts[d.label] = (counts[d.label]||0)+1);
+  const summary = Object.entries(counts).map(([k,v])=>`${v}×${k}`).join(' ') || 'none';
+  const item = document.createElement('div');
+  item.className = `alert-item ${herd_alert ? 'herd' : 'normal'}`;
+  item.innerHTML = `
+    <span class="ai-icon">${herd_alert ? '⚠️' : '📍'}</span>
+    <div class="ai-meta">
+      <div class="ai-title">${herd_alert ? 'HERD ALERT' : 'Detection'}  [${detections.length}]</div>
+      <div class="ai-body">${location.name} — ${summary}</div>
+      <div class="ai-body" style="font-size:10px;margin-top:2px">${new Date().toLocaleTimeString()}</div>
+    </div>`;
+  feed.prepend(item);
+}
+
+// ── Herd flash ───────────────────────────────────────────────
+function flashHerdAlert() {
+  const el = document.getElementById('herdFlash');
+  el.style.display = 'block';
+  setTimeout(() => { el.style.display = 'none'; }, 2800);
+}
+
+// ── Live camera ──────────────────────────────────────────────
+function toggleLive() {
+  liveActive = !liveActive;
+  const frame = document.getElementById('live-frame');
+  const btn   = document.getElementById('btnLive');
+  if (liveActive) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab')[1].classList.add('active');
+    document.getElementById('tab-live').classList.add('active');
+    frame.src = '/video_feed';
+    btn.textContent = 'STOP CAMERA';
+    btn.style.color = 'var(--red)'; btn.style.borderColor = 'var(--red)';
+    setStatus('LIVE FEED ACTIVE');
+    addLog('Live camera stream started.', 'ok');
+  } else {
+    frame.src = '';
+    btn.textContent = 'LIVE CAMERA';
+    btn.style.color = ''; btn.style.borderColor = '';
+    setStatus('STANDBY');
+    addLog('Live camera stream stopped.', 'ok');
+  }
+}
+
+// ── Utilities ────────────────────────────────────────────────
+function showSpinner(on) {
+  document.getElementById('spinner').style.display = on ? 'flex' : 'none';
+}
+function setStatus(msg) {
+  const pill = document.getElementById('pill-status');
+  pill.textContent = msg;
+  pill.className   = 'status-pill';
+  if (msg.includes('ALERT') || msg.includes('HERD'))     pill.classList.add('alert');
+  else if (msg.includes('COMPLETE') || msg.includes('OK')) pill.classList.add('active');
+}
+function addLog(msg, type='') {
+  const box  = document.getElementById('logBox');
+  const line = document.createElement('div');
+  line.className   = `log-line ${type}`;
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+}
+</script>
+</body>
+</html>

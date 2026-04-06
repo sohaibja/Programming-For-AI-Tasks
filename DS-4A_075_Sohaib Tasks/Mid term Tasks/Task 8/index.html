@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>NASA AI App</title>
+</head>
+
+<body>
+
+  <h2>NASA Image of the Day</h2>
+
+  <form method="POST">
+    <input type="text" name="topic" placeholder="Enter topic (mars/moon/stars)" required>
+    <button type="submit">Check with AI</button>
+  </form>
+
+  {% if data %}
+  <h3>{{ data.title }}</h3>
+  <img src="{{ data.image }}" width="500">
+  <p>{{ data.description }}</p>
+  {% endif %}
+
+  {% if logic_result %}
+  <h3>{{ logic_result }}</h3>
+  {% endif %}
+
+</body>
+
+</html>
